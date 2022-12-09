@@ -14,7 +14,7 @@ class Dataset(object):
         for sequence_path in self.data_train_val_sequences_path:
             self.train_val_sequences[sequence_path] = Sequence(os.path.join(self.dataset_path, sequence_path, 'rgb'),
                                                depth_directory=os.path.join(self.dataset_path, sequence_path, 'depth'), 
-                                               obstacles_directory=os.path.join(self.dataset_path, sequence_path, 'obstacles_30m'),
+                                               obstacles_directory=os.path.join(self.dataset_path, sequence_path, 'obstacles_3m'),
                                                extension=self.img_extension)
 
     def generate_data(self):

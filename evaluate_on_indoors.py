@@ -43,7 +43,7 @@ for test_path in config.data_test_path:
     
     grd_paths = sorted(glob(os.path.join(config.dataset_path, test_path, 'ground', '*' + '.png')))
     
-    labels_paths = sorted(glob(os.path.join(config.dataset_path, test_path, 'obstacles_30m', '*' + '.txt')))
+    labels_paths = sorted(glob(os.path.join(config.dataset_path, test_path, 'obstacles_3m', '*' + '.txt')))
     
     idx = 0
 
