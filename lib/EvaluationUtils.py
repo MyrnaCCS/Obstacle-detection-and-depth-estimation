@@ -179,8 +179,8 @@ def compute_detection_stats(detected_obstacles, gt_obstacles, iou_thresh=0.5):
 				n_valid_pred_for_each_gt_obstacle[elem[1]] += 1
 				if elem[2] > iou_for_each_gt_obstacle[elem[1]]:
 					iou_for_each_gt_obstacle[elem[1]] = elem[2]
-					depth_error_for_each_gt_obstacle[elem[1]] = rmse_error_on_vector(elem[0].depth_mean, detected_obstacles[it].depth_mean)
-					var_depth_error_for_each_gt_obstacle[elem[1]] = rmse_error_on_vector(elem[0].depth_variance, detected_obstacles[it].depth_variance)
+					depth_error_for_each_gt_obstacle[elem[1]] = np.sqrt(np.square(elem[0].depth_mean-detected_obstacles[it].depth_mean))
+					var_depth_error_for_each_gt_obstacle[elem[1]] = np.sqrt(np.square(elem[0].depth_variance-detected_obstacles[it].depth_variance))
 				it += 1
 		
 		n_detected_obstacles = 0
