@@ -11,10 +11,10 @@ from Obstacle import Obstacle
 def get_detected_obstacles_from_detector_v2(prediction, confidence_thr=0.5):
 	def sigmoid(x):
 		return 1 / (1 + math.exp(-x))
-
+	
 	if len(prediction.shape) == 4:
 		prediction = np.expand_dims(prediction, axis=0)
-
+	
 	conf_pred = prediction[0, ..., 0]
 	x_pred = prediction[0, ..., 1]
 	y_pred = prediction[0, ..., 2]
@@ -22,15 +22,15 @@ def get_detected_obstacles_from_detector_v2(prediction, confidence_thr=0.5):
 	h_pred = prediction[0, ..., 4]
 	mean_pred = prediction[0, ..., 5]
 	var_pred = prediction[0, ..., 6]
-
+	
 	# img shape
 	IMG_WIDTH = 256.
 	IMG_HEIGHT = 160.
-
+	
 	# Anchors indoors
 	anchors = np.array([[0.21651918, 0.78091232],
 						[0.85293483, 0.96561908]], dtype=np.float32)
-
+	
 	# obstacles list
 	detected_obstacles = []
 	for i in range(0, 5):
@@ -47,7 +47,20 @@ def get_detected_obstacles_from_detector_v2(prediction, confidence_thr=0.5):
 					x_top_left = np.floor(((x + j) * 32.) - (w / 2.))
 					y_top_left = np.floor(((y + i) * 32.) - (h / 2.))
 					detected_obstacles.append(Obstacle(x_top_left, y_top_left, w, h, obs_stats=(mean, var), conf_score=val_conf))
-
+	
+	'''for i in range(0, 40):
+		val_conf = sigmoid(conf_pred[i])
+		if val_conf >= confidence_thr:
+			x = x_pred[i]
+			y = y_pred[i]
+			w = w_pred[i] * IMG_WIDTH
+			h = h_pred[i] * IMG_HEIGHT
+			mean = mean_pred[i] * 10 * 3.0
+			var = var_pred[i] * 100 
+			x_top_left = np.floor(((x + int(i % 8)) * 32.) - (w / 2.))
+			y_top_left = np.floor(((y + (i / 8)) * 32.) - (h / 2.))
+			detected_obstacles.append(Obstacle(x_top_left, y_top_left, w, h, obs_stats=(mean, var), conf_score=val_conf))'''
+	
 	return detected_obstacles
 
 def get_obstacles_from_file(path_file):

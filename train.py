@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 
 from models.JMOD2 import JMOD2
+from models.ODDEG import ODDEG
 from lib.trainer import Trainer
 from config import get_config
 from lib.utils import prepare_dirs

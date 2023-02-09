@@ -35,7 +35,7 @@ def compute_correction_factor(depth, obstacles):
 		left = max([obstacle.x, 0])
 		right = min(obstacle.x + obstacle.w, depth.shape[2])
 		depth_roi = depth[0, top:bottom, left:right, 0]
-		if depth_roi:
+		if np.size(depth_roi):
 			mean_corr += obstacle.depth_mean / np.mean(depth_roi)
 			it += 1
 	# average factor
@@ -47,8 +47,7 @@ def compute_correction_factor(depth, obstacles):
 
 
 def compute_correction_factor_depth_ground(depth, ground_depth_map, obstacles):
-    mean_corr = 0
-    it = 0
+    correction_factor_list = []
     for obstacle in obstacles:
         bottom = min(obstacle.y + obstacle.h, depth.shape[1]-1)
         center = obstacle.x + (obstacle.w/2)
@@ -57,11 +56,10 @@ def compute_correction_factor_depth_ground(depth, ground_depth_map, obstacles):
         else:
             corner = np.min([obstacle.x+obstacle.w+5, depth.shape[2]-1])
         if ground_depth_map[bottom, corner] < 4 and obstacle.w < 240:
-            mean_corr += ground_depth_map[bottom, corner] / depth[0, bottom, corner, 0]
-            it += 1
-    # average factor
-    if it > 0:
-        mean_corr /= it
+            correction_factor_list.append(ground_depth_map[bottom, corner] / depth[0, bottom, corner, 0])
+    # Result: mediana de correction_factor_list 
+    if correction_factor_list:
+        mean_corr = np.median(np.asarray(correction_factor_list))
     else:
         mean_corr = 1.0
     return mean_corr

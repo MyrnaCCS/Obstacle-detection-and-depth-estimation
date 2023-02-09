@@ -24,7 +24,7 @@ data_arg.add_argument('--img_extension', type=str, default="png")
 
 #JMOD2 param
 jmod2_arg = add_argument_group('JMOD2')
-jmod2_arg.add_argument('--detector_confidence_thr', type=int, default=0.4)
+jmod2_arg.add_argument('--detector_confidence_thr', type=int, default=0.5)
 jmod2_arg.add_argument('--non_max_suppresion', type=str2bool, default=False)
 
 # Training / Testing param
@@ -45,12 +45,12 @@ misc_arg = add_argument_group('Misc')
 misc_arg.add_argument('--log_step', type=int, default=20, help='')
 misc_arg.add_argument('--log_dir', type=str, default='logs')# Directory where to save model checkpoints
 misc_arg.add_argument('--debug', type=str2bool, default=True)
-misc_arg.add_argument('--gpu_memory_fraction', type=float, default=0.9)
+misc_arg.add_argument('--gpu_memory_fraction', type=float, default=0.8)
 misc_arg.add_argument('--max_image_summary', type=int, default=4)
 
 # Sort
 sort_arg = add_argument_group('Sort')
-sort_arg.add_argument('--tracking', type=str2bool, default=True)
+sort_arg.add_argument('--tracking', type=str2bool, default=False)
 sort_arg.add_argument("--max_age", help="Max number of frames to keep alive a track without associated detections.", type=int, default=3)
 sort_arg.add_argument("--min_hits", help="Minimum number of associated detections before track is initialised.", type=int, default=0)
 sort_arg.add_argument("--iou_threshold", help="Minimum IOU for match.", type=float, default=0.3)

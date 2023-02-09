@@ -8,7 +8,7 @@ from keras.backend.tensorflow_backend import set_session
 from keras.optimizers import Adam
 from keras.applications.vgg19 import VGG19
 from keras.models import Model
-from keras.layers import Reshape, Convolution2D, Input, Conv2DTranspose, MaxPooling2D
+from keras.layers import Reshape, Convolution2D, Input, Conv2DTranspose, MaxPooling2D, Concatenate
 from keras.layers.advanced_activations import PReLU
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.utils import plot_model
@@ -20,7 +20,7 @@ from lib.DataAugmentation import DataAugmentationStrategy
 from lib.EvaluationUtils import get_detected_obstacles_from_detector_v2
 from lib.PostProcessing import *
 
-class JMOD2(object):
+class ODDEG(object):
     def __init__(self, config):
         tf_config = tf.ConfigProto()
         tf_config.gpu_options.per_process_gpu_memory_fraction = config.gpu_memory_fraction
@@ -31,12 +31,12 @@ class JMOD2(object):
         self.data_augmentation_strategy = DataAugmentationStrategy()
         self.training_data = {}
         self.validation_data = {}
-        self.model = self.build_model()
+        self.model = self.build_model_v2()
     
     
     def load_data(self):
         self.dataset.read_data()
-        self.training_data = self.dataset.generate_data()
+        self.training_data = self.dataset.generate_data(grd_depth_map_as_input=True)
         
         # Split into validation and training
         np.random.shuffle(self.training_data)
@@ -46,7 +46,10 @@ class JMOD2(object):
     
     
     def build_model(self):
-        input = Input(shape=(self.config.input_height, self.config.input_width, self.config.input_channel), name="input")
+        input_rgb = Input(shape=(self.config.input_height, self.config.input_width, 3), name="input_rgb")
+        input_grd = Input(shape=(self.config.input_height, self.config.input_width, 1), name="input_grd")
+        input = Concatenate(axis=-1)([input_rgb, input_grd])
+        
         vgg19 = VGG19(include_top=False, weights=None, input_tensor=input, input_shape=(self.config.input_height, self.config.input_width, self.config.input_channel))
         
         vgg19.layers.pop()
@@ -67,40 +70,35 @@ class JMOD2(object):
             else:
                 x = Convolution2D(num_filters, (1, 1), activation="relu", padding="same")(x)
         x = Convolution2D(14, (1, 1), activation="linear", padding="same")(x)
-        detection_output = Reshape((5, 8, 2, 7), name='detection_output')(x)
-
-        '''for num_filters in [512, 512, 512, 512, 512, 280]:
-            x = Convolution2D(num_filters, (3, 3), activation="relu", padding="same")(x)
-        x = Reshape((40, 7, 160))(x)
-        for num_filters in [160, 40]:
-            x = Convolution2D(num_filters, (3, 3), activation="relu", padding="same")(x)
-        x = Convolution2D(1, (3, 3), activation="linear", padding="same")(x)
-        detection_output = Reshape((40, 7), name='detection_output')(x)'''
+        detection_output = Reshape((5, 8, 2, 7), name="detection_output")(x)
         
         #Model
-        jmod2_model = Model(inputs=input, outputs=[depth_output, detection_output])
+        jmod2_model = Model(inputs=[input_rgb, input_grd], outputs=[depth_output, detection_output])
         jmod2_model.compile(loss={'depth_output':log_normals_loss, 'detection_output':yolo_v2_loss},
-							optimizer=Adam(lr=self.config.learning_rate, clipnorm=1.0),
-							metrics={'depth_output': [rmse_metric, logrmse_metric, sc_inv_logrmse_metric], 
-									 'detection_output': []},
-							loss_weights=[5.0, 1.0])
-        #iou_metric, recall, precision, yolo_objconf_loss, yolo_nonobjconf_loss, yolo_xy_loss, yolo_wh_loss, yolo_mean_loss, yolo_var_loss
+                            optimizer=Adam(lr=self.config.learning_rate, clipnorm=1.0),
+                            metrics={'depth_output': [rmse_metric, logrmse_metric, sc_inv_logrmse_metric], 
+                                     'detection_output': [iou_metric, recall, precision, yolo_objconf_loss, yolo_nonobjconf_loss, yolo_xy_loss, yolo_wh_loss, yolo_mean_loss, yolo_var_loss]},
+                            loss_weights=[5.0, 1.0])
+        
         return jmod2_model
     
     
     def prepare_data_for_model(self, features, label):
-        features = np.asarray(features)
-        features = features.astype('float32')
-        features /= 255.0
+        features_rgb = np.zeros(shape=(len(features), self.config.input_height, self.config.input_width, 3), dtype=np.float32)
+        features_grd = np.zeros(shape=(len(features), self.config.input_height, self.config.input_width, 1), dtype=np.float32)
+        
+        for idx, element in enumerate(features):
+            features_rgb[idx, ...] = np.asarray(element["rgb"]).astype('float32') / 255.0
+            features_grd[idx, ...] = np.asarray(element["ground"]).astype('float32') / 255.0
         
         # Prepare output : lista de numpy arrays
-        labels_depth = np.zeros(shape=(features.shape[0], features.shape[1], features.shape[2], 1), dtype=np.float32) # Gray Scale
-        labels_obs = np.zeros(shape=(features.shape[0], 5, 8, 2, 7), dtype=np.float32) # Obstacle output
+        labels_depth = np.zeros(shape=(len(features), self.config.input_height, self.config.input_width, 1), dtype=np.float32) # Gray Scale
+        labels_obs = np.zeros(shape=(len(features), 5, 8, 2, 7), dtype=np.float32) # Obstacle output
         for idx, element in enumerate(label):
             labels_depth[idx, ...] = np.asarray(element["depth"]).astype(np.float32) / 255.0
             labels_obs[idx, ...] = np.asarray(element["obstacles"]).astype(np.float32)
         
-        return features, [labels_depth, labels_obs]
+        return [features_rgb, features_grd], [labels_depth, labels_obs]
     
     
     def train_data_generator(self):
@@ -195,6 +193,51 @@ class JMOD2(object):
         
         return history
     
+    def build_depth_model(self):
+        input_rgb = Input(shape=(self.config.input_height, self.config.input_width, 3), name='input_rgb')
+        input_grd = Input(shape=(self.config.input_height, self.config.input_width, 1), name='input_grd')
+        input = Concatenate(axis=-1)([input_rgb, input_grd])
+        # Features red
+        vgg19model = VGG19(include_top=False, weights=None, input_tensor=input,input_shape=(self.config.input_height, self.config.input_width, self.config.input_channel))
+        vgg19model.layers.pop()
+        output = vgg19model.layers[-1].output
+        x = Conv2DTranspose(128, (4, 4), padding="same", strides=(2, 2))(output)
+        x = PReLU()(x)
+        x = Conv2DTranspose(64, (4, 4), padding="same", strides=(2, 2))(x)
+        x = PReLU()(x)
+        x = Conv2DTranspose(32, (4, 4), padding="same", strides=(2, 2))(x)
+        x = PReLU()(x)
+        x = Conv2DTranspose(16, (4, 4), padding="same", strides=(2, 2))(x)
+        x = PReLU()(x)
+        out = Convolution2D(1, (5, 5), padding="same", activation="relu", name="depth_output")(x)
+        model = Model(inputs=[input_rgb, input_grd], outputs=out)
+        return model
+    
+    def conv_block(self, input_tensor, n_filters, filter_shape=(3, 3), act_func='relu', batch_norm=False, block_num=None):
+        output_tensor = Convolution2D(n_filters, filter_shape, activation=act_func, padding='same', name='det_conv'+block_num)(input_tensor)
+        return output_tensor
+    
+    def build_model_v2(self):
+        depth_model = self.build_depth_model()
+        output = depth_model.layers[-11].output
+        x = MaxPooling2D(pool_size=(2, 2), name='det_maxpool')(output)
+        x = self.conv_block(x, 512, block_num='1')
+        x = self.conv_block(x, 1024, filter_shape=(1, 1), block_num='2')
+        x = self.conv_block(x, 512, block_num='3')
+        x = self.conv_block(x, 1024, filter_shape=(1, 1), block_num='4')
+        x = self.conv_block(x, 512, batch_norm=False, block_num='5')
+        x = self.conv_block(x, 14, filter_shape=(1, 1), act_func='linear', block_num='6')
+        out_detection = Reshape((5, 8, 2, 7), name='detection_output')(x)
+        model = Model(inputs=[depth_model.inputs[0], depth_model.inputs[1]], outputs=[depth_model.outputs[0], out_detection])
+        opt = Adam(lr=self.config.learning_rate, clipnorm = 1.)
+        model.compile(loss={'depth_output': log_normals_loss, 'detection_output':yolo_v2_loss},
+        optimizer=opt,
+        metrics={'depth_output': [rmse_metric, logrmse_metric, sc_inv_logrmse_metric], 
+        'detection_output': [iou_metric, recall, precision, 
+        yolo_objconf_loss, yolo_nonobjconf_loss, yolo_xy_loss, yolo_wh_loss, 
+        yolo_mean_loss, yolo_var_loss]},loss_weights=[5.0, 1.0])
+        return model
+    
 
     def resume_training(self, weights_file, initial_epoch):
         self.model.load_weights(weights_file)
@@ -203,7 +246,8 @@ class JMOD2(object):
     
     
     def load_model(self):
-        self.model.load_weights("weights/no_ft.hdf5")
+        self.model.load_weights("weights/jmod2.hdf5")
+        print(self.model.layers)
     
 
     def run(self, input, ground_plane_depth_map=None):
@@ -220,10 +264,16 @@ class JMOD2(object):
         else:
             input[0, ...] -= mean/255.0
         
+        if len(ground_plane_depth_map.shape) == 2:
+            ground_plane_depth_map = np.expand_dims(ground_plane_depth_map, axis=-1)
+        
+        if len(ground_plane_depth_map.shape) == 3:
+            ground_plane_depth_map = np.expand_dims(ground_plane_depth_map, 0)
+        
         # Prediction
         t0 = time.time()
         
-        net_output = self.model.predict(input)
+        net_output = self.model.predict([input, ground_plane_depth_map])
         
         print ("Elapsed time: {}").format(time.time() - t0)
         
@@ -236,11 +286,11 @@ class JMOD2(object):
         
         # Depth map corrected
         if ground_plane_depth_map is not None:
-            correction_factor = compute_correction_factor_depth_ground(pred_depth, 7.0*ground_plane_depth_map, pred_obstacles)
+            correction_factor = compute_correction_factor_depth_ground(pred_depth, 7.0*ground_plane_depth_map[0, ..., 0], pred_obstacles)
         else:
             correction_factor = compute_correction_factor(pred_depth, pred_obstacles)
         corrected_depth = np.array(pred_depth) * correction_factor
-
+        
         #Eliminate multiple detections
         if self.config.non_max_suppresion:
             pred_obstacles = non_maximal_suppresion(pred_obstacles, iou_thresh=0.3)

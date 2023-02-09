@@ -14,9 +14,6 @@ def iou(y_true, y_pred):
 						[0.85293483, 0.96561908]], dtype=np.float32)
 	pred_wh_tensor = K.exp(y_pred[..., 3:5]) * K.reshape(anchors, [1, 1, 1, 2, 2]) # relative to image shape
 
-	# adjust confidence
-	pred_conf_tensor = K.sigmoid(y_pred[..., 0])
-
 	# Adjust true tensor
 	# adjust x, y
 	true_xy_tensor = y_true[..., 1:3] # relative position to the containing cell
@@ -306,5 +303,113 @@ def yolo_v2_loss(y_true, y_pred):
 
 	# total loss
 	loss = 1.0 * loss_object + 0.005 * loss_non_object + 5.0 * loss_xy + 5.0 * loss_wh + 1.0 * loss_mean + 1.0 * loss_var
+	
+	return loss
+
+
+
+
+
+def yolo_v1_loss(y_true, y_pred):
+	# Adjust prediction
+	# adjust x, y
+	pred_xy_tensor = K.sigmoid(y_pred[..., 1:3]) # relative to position to the containing cell
+
+	# adjust w, h
+	pred_wh_tensor = K.sigmoid(y_pred[..., 3:5]) # relative to image shape
+
+	# adjust confidence
+	pred_conf_tensor = K.sigmoid(y_pred[..., 0])
+
+	# adjust mean
+	pred_m_tensor = K.expand_dims(y_pred[..., 5], axis=-1)
+
+	# adjust variance
+	pred_v_tensor = K.expand_dims(y_pred[..., 6], axis=-1)
+
+	# Adjust true tensor
+	# adjust x, y
+	true_xy_tensor = y_true[..., 1:3] # relative position to the containing cell
+
+	# adjust w, h
+	true_wh_tensor = y_true[..., 3:5] # relative to image shape
+
+	# adjust mean
+	true_m_tensor = K.expand_dims(y_true[..., 5], axis=-1)
+
+	# adjust variance
+	true_v_tensor = K.expand_dims(y_true[..., 6], axis=-1)
+
+	# Compute confidence
+	# grid dimentions: x, y
+	grid = [256., 160.]
+	rows = []
+	cols = []
+	for y in range(5):
+		for x in range(8):
+			cell = [x, y]
+			offset = [cell]
+			cols.append(offset)
+		rows.append(cols)
+		cols = []
+	offset = K.reshape(tf.convert_to_tensor(rows, dtype=np.float32), [1, 40, 2])
+
+    # adjust true min and max
+	true_wh_cell = true_wh_tensor * K.reshape([grid], [1, 1, 2])
+	true_wh_half = 0.5 * true_wh_cell
+	true_xy_center = tf.math.add(true_xy_tensor, offset) * 32.
+	true_mins = true_xy_center - true_wh_half
+	true_maxes = true_xy_center + true_wh_half
+
+	# adjust pred min and max
+	pred_wh_cell = pred_wh_tensor * K.reshape([grid], [1, 1, 2])
+	pred_wh_half = 0.5 * pred_wh_cell
+	pred_xy_center = tf.math.add(pred_xy_tensor, offset) * 32.
+	pred_mins = pred_xy_center - pred_wh_half
+	pred_maxes = pred_xy_center + pred_wh_half
+
+	# adjust intersection
+	intersect_min = tf.maximum(pred_mins, true_mins)
+	intersect_max = tf.minimum(pred_maxes, true_maxes)
+	intersect_wh = tf.maximum(intersect_max - intersect_min, 0.0)
+	intersect_areas = intersect_wh[..., 0] * intersect_wh[..., 1]
+
+	# adjust areas
+	true_areas = true_wh_cell[..., 0] * true_wh_cell[..., 1]
+	pred_areas = pred_wh_cell[..., 0] * pred_wh_cell[..., 1]
+	union_areas = true_areas + pred_areas - intersect_areas
+	iou_scores  = tf.truediv(intersect_areas, union_areas) # shape(None, 40)
+
+	# when there's no object in cell iou should be zero
+	iou_scores_corrected = y_true[..., 0] * iou_scores
+
+	# confidence error: pred_conf - iou
+	conf_error = pred_conf_tensor - iou_scores_corrected
+
+	# compute error
+	conf_mask = K.expand_dims(y_true[..., 0], axis=-1)
+	coord_mask = K.concatenate([conf_mask, conf_mask], axis=-1)
+
+	# location error
+	batch_size = 64.0
+	loss_xy = tf.reduce_sum(tf.square(true_xy_tensor - pred_xy_tensor) * coord_mask) / batch_size
+
+	# size error
+	loss_wh = tf.reduce_sum(tf.square(tf.sqrt(true_wh_tensor + K.epsilon()) - tf.sqrt(pred_wh_tensor + K.epsilon())) * coord_mask) / batch_size
+
+	# depth error
+	loss_mean = tf.reduce_sum(tf.square(true_m_tensor - pred_m_tensor) * conf_mask) / batch_size
+
+	# variance depth error
+	loss_var = tf.reduce_sum(tf.square(true_v_tensor - pred_v_tensor) * conf_mask) / batch_size
+
+	# confidence object error
+	loss_object = tf.reduce_sum(K.expand_dims(tf.square(conf_error), axis=-1) * conf_mask) / batch_size
+
+	# confidence non object error
+	loss_non_object = tf.reduce_sum(K.expand_dims(tf.square(conf_error), axis=-1) * (1. - conf_mask)) / batch_size
+
+	# total loss
+	loss = 1.0 * loss_object + 0.01 * loss_non_object + 5.0 * loss_xy + 5.0 * loss_wh + 1.0 * loss_mean + 1.0 * loss_var
 	
 	return loss

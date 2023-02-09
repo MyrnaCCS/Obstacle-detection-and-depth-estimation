@@ -10,13 +10,21 @@ def select_anchor_index(width, height):
 
 
 class Element(object):
-    def __init__(self, feature_path, labels_path):
-        self.feature_path = feature_path
+    def __init__(self, feature_path, labels_path, grd_depth_map_as_input=False):
+        self.feature_path = feature_path[0]
+        self.grd_path = feature_path[1]
         self.depth_path = labels_path[0]
         self.obstacles_path = labels_path[1]
+        self.grd_depth_map_as_input = grd_depth_map_as_input
 
     def get_features(self):
         rgb_input = cv.imread(self.feature_path[0], cv.IMREAD_COLOR)
+        if self.grd_depth_map_as_input:
+            grd_input = cv.imread(self.grd_path[0], cv.IMREAD_GRAYSCALE)
+            features = {}
+            features["rgb"] = rgb_input
+            features["ground"] = np.expand_dims(grd_input, 2)
+            return features
         return rgb_input
     
     def get_labels(self):
